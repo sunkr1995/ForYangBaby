@@ -48,7 +48,7 @@ const advancedFields = [
 const form = reactive({
   assets: "",
   debt: "",
-  warning: "150",
+  warning: "140",
   target: "130",
   broker: "",
   cash: "",
@@ -157,7 +157,7 @@ function demo() {
   Object.assign(form, {
     assets: "120",
     debt: "100",
-    warning: "150",
+    warning: "140",
     target: "130",
     broker: "",
     cash: "",
@@ -169,7 +169,7 @@ function reset() {
   Object.assign(form, {
     assets: "",
     debt: "",
-    warning: "150",
+    warning: "140",
     target: "130",
     broker: "",
     cash: "",
