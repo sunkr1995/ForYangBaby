@@ -23,7 +23,11 @@ import {
   calculateMarginRatio,
   calculateNetAssets,
   calculateRiskStatus,
+  formatWanAmount,
+  formatRequiredWanAmount,
   formatAmount,
+  getRecoveryTarget,
+  calculateWithdrawalRepayment,
   formatRatio,
   operationLabels,
   parseAmount,
@@ -32,6 +36,8 @@ import {
   validateAccount,
   type Account,
   type Operations,
+  type Snapshot,
+  type RiskStatus,
 } from "./utils/marginCalculator";
 const fields = [
   { key: "assets", label: "总资产", suffix: "万元", required: true },
@@ -62,11 +68,15 @@ const ops = reactive<Record<keyof Operations, string>>({
   saleAmount: "0",
   transactionFees: "0",
   stockRepayment: "0",
+  withdrawal: "0",
 });
+const recoveryMode = ref("warning");
+const recoveryForm = reactive({ custom: "150", buffer: "0.03" });
+const withdrawalRatio = ref("300");
 const tab = ref("solutions");
 const copyMessage = ref("");
 const disclaimer =
-  "本工具仅根据用户输入的资产、负债及平仓线进行数学测算，结果仅供参考。实际维持担保比例、担保品认定、融资负债、还款顺序及追保要求以证券公司规定和账户实际数据为准。本工具不提供投资建议。";
+  "本工具仅根据用户输入的资产、负债及设定比例进行数学测算，结果仅供参考。实际维持担保比例、担保品认定、融资负债、还款顺序及追保要求以证券公司规定和账户实际数据为准。本工具不提供投资建议。";
 const riskLabels = {
   NO_DEBT: "无负债",
   BELOW_WARNING: "低于警戒线，请及时关注",
@@ -121,11 +131,93 @@ const ratio = computed(() =>
 const risk = computed(() =>
   account.value ? calculateRiskStatus(account.value) : null,
 );
+const recoverySettings = computed(() => {
+  try {
+    const selected =
+      recoveryMode.value === "liquidation"
+        ? form.target
+        : recoveryMode.value === "warning"
+          ? form.warning
+          : recoveryForm.custom;
+    const target = parseDecimal(selected).div(100);
+    if (target.lte(1)) throw new Error("恢复目标比例必须大于100%");
+    const buffer = parseDecimal(recoveryForm.buffer).div(100);
+    return { target, buffer, error: "" };
+  } catch (error) {
+    return { target: null, buffer: null, error: (error as Error).message };
+  }
+});
+const calculationAccount = computed(() => {
+  const settings = recoverySettings.value;
+  return account.value && settings.target && settings.buffer
+    ? {
+        ...account.value,
+        recoveryTarget: settings.target,
+        recoveryBuffer: settings.buffer,
+      }
+    : null;
+});
+const effectiveTarget = computed(() =>
+  calculationAccount.value ? getRecoveryTarget(calculationAccount.value) : null,
+);
+const recoveryScenarios = computed(() => {
+  if (!account.value || !recoverySettings.value.buffer) return [];
+  return [
+    { name: "恢复至平仓线", target: account.value.target },
+    { name: "恢复至警戒线", target: account.value.warning },
+  ].map((scenario) => {
+    const a = {
+      ...account.value!,
+      recoveryTarget: scenario.target,
+      recoveryBuffer: recoverySettings.value.buffer!,
+    };
+    return {
+      name: scenario.name,
+      target: getRecoveryTarget(a),
+      solutions: calculateAllSolutions(a),
+    };
+  });
+});
+function snapshotRisk(value: Snapshot): RiskStatus {
+  return calculateRiskStatus({
+    assets: value.assets,
+    debt: value.debt,
+    target: account.value!.target,
+    warning: account.value!.warning,
+  });
+}
+function riskTagType(status: RiskStatus) {
+  if (status === "BELOW_TARGET") return "danger";
+  return status === "BELOW_WARNING" ? "warning" : "success";
+}
+const withdrawalPlan = computed(() => {
+  if (!account.value) return { result: null, error: "" };
+  try {
+    return {
+      result: calculateWithdrawalRepayment(
+        {
+          ...account.value,
+          withdrawalRatio: parseDecimal(withdrawalRatio.value).div(100),
+        },
+        parseAmount(ops.withdrawal, "10000"),
+      ),
+      error: "",
+    };
+  } catch (error) {
+    return { result: null, error: (error as Error).message };
+  }
+});
 const solutions = computed(() =>
-  account.value ? calculateAllSolutions(account.value) : [],
+  calculationAccount.value
+    ? calculateAllSolutions(calculationAccount.value)
+    : [],
 );
 const simulation = computed(() => {
-  if (!account.value) return { result: null, errors: [] as string[] };
+  if (!calculationAccount.value)
+    return {
+      result: null,
+      errors: account.value ? [recoverySettings.value.error] : ([] as string[]),
+    };
   try {
     const operations = {} as Operations;
     for (const key of Object.keys(ops) as (keyof Operations)[]) {
@@ -136,7 +228,13 @@ const simulation = computed(() => {
       }
     }
     return {
-      result: simulateOperations(account.value, operations),
+      result: simulateOperations(
+        {
+          ...calculationAccount.value,
+          withdrawalRatio: parseDecimal(withdrawalRatio.value).div(100),
+        },
+        operations,
+      ),
       errors: [],
     };
   } catch (e) {
@@ -153,7 +251,16 @@ const change = computed(() =>
     ? `${simulation.value.result.ratio.sub(ratio.value).mul(100).toFixed(2)} 个百分点`
     : "无负债时不计算比例变化",
 );
+function resetCalculationSettings() {
+  recoveryMode.value = "warning";
+  recoveryForm.custom = "150";
+  recoveryForm.buffer = "0.03";
+  withdrawalRatio.value = "300";
+  for (const key of Object.keys(ops) as (keyof Operations)[]) ops[key] = "0";
+  copyMessage.value = "";
+}
 function demo() {
+  resetCalculationSettings();
   Object.assign(form, {
     assets: "120",
     debt: "100",
@@ -166,6 +273,7 @@ function demo() {
   });
 }
 function reset() {
+  resetCalculationSettings();
   Object.assign(form, {
     assets: "",
     debt: "",
@@ -176,11 +284,6 @@ function reset() {
     stocks: "",
     external: "",
   });
-  for (const key of Object.keys(ops) as (keyof Operations)[]) ops[key] = "0";
-  copyMessage.value = "";
-}
-function formatWanAmount(value: Decimal): string {
-  return formatAmount(value.div(10000));
 }
 
 function operationError(key: keyof Operations): string {
@@ -192,23 +295,46 @@ function operationError(key: keyof Operations): string {
   }
 }
 async function copy() {
-  if (!account.value) return;
+  if (!account.value || !calculationAccount.value) return;
   const lines = [
     "融资融券维持担保比例测算",
     `总资产 ${formatWanAmount(new Decimal(account.value.assets))} 万元`,
     `总负债 ${formatWanAmount(new Decimal(account.value.debt))} 万元`,
     `当前比例 ${formatRatio(ratio.value)}`,
-    `平仓线 ${form.target}%`,
+    `平仓线 ${form.target}%，警戒线 ${form.warning}%`,
+    `恢复目标 ${formatRatio(recoverySettings.value.target)}，附加比例 ${recoveryForm.buffer} 个百分点，实际测算目标 ${formatRatio(effectiveTarget.value)}`,
     ...solutions.value.map(
       (s) =>
-        `${s.name} ${s.amount === null ? "无可行金额" : formatWanAmount(s.amount) + " 万元"}（${feasibilityLabels[s.feasibility]}，${s.reason}）`,
+        `${s.name} ${s.amount === null ? "无可行金额" : formatRequiredWanAmount(s.amount) + " 万元（精确最低金额 " + formatAmount(s.amount) + " 元）"}（${feasibilityLabels[s.feasibility]}，${s.reason}）`,
     ),
   ];
+  for (const scenario of recoveryScenarios.value) {
+    lines.push(
+      `${scenario.name}（含附加比例 ${formatRatio(scenario.target)}）`,
+    );
+    lines.push(
+      ...scenario.solutions.map(
+        (s) =>
+          `${s.name} ${s.amount === null ? "无可行金额" : formatRequiredWanAmount(s.amount) + " 万元（精确最低金额 " + formatAmount(s.amount) + " 元）"}（${feasibilityLabels[s.feasibility]}）`,
+      ),
+    );
+  }
+  const plan = withdrawalPlan.value.result;
+  if (plan && plan.withdrawal.gt(0)) {
+    lines.push(
+      `独立取现方案：拟取现 ${formatWanAmount(plan.withdrawal)} 万元，取现后最低比例 ${formatRatio(plan.requiredRatio)}，需内部还债 ${plan.amount === null ? "无可行金额" : formatRequiredWanAmount(plan.amount) + " 万元（精确最低金额 " + formatAmount(plan.amount) + " 元）"}，${feasibilityLabels[plan.feasibility]}，${plan.reason}`,
+    );
+    if (plan.amount !== null)
+      lines.push(
+        `取现后资产 ${formatWanAmount(plan.assets)} 万元，负债 ${formatWanAmount(plan.debt)} 万元，比例 ${formatRatio(plan.ratio)}`,
+      );
+  } else if (withdrawalPlan.value.error)
+    lines.push(`取现测算输入无效 ${withdrawalPlan.value.error}`);
   if (Object.values(ops).some((v) => v !== "0")) {
     const s = simulation.value.result;
     if (s)
       lines.push(
-        `模拟后资产 ${formatWanAmount(s.assets)} 万元，负债 ${formatWanAmount(s.debt)} 万元，净资产 ${formatWanAmount(s.netAssets)} 万元，比例 ${formatRatio(s.ratio)}，${s.reachedTarget ? "达到平仓线" : "低于平仓线"}，${feasibilityLabels[s.feasibility]}`,
+        `模拟后资产 ${formatWanAmount(s.assets)} 万元，负债 ${formatWanAmount(s.debt)} 万元，净资产 ${formatWanAmount(s.netAssets)} 万元，比例 ${formatRatio(s.ratio)}，${s.reachedTarget ? "达到恢复目标" : "未达到恢复目标"}，${riskLabels[s.riskStatus]}，${feasibilityLabels[s.feasibility]}`,
       );
     else lines.push(`操作模拟输入无效 ${simulation.value.errors.join("；")}`);
   }
@@ -245,7 +371,8 @@ async function copy() {
           <ElButton text @click="reset">重置</ElButton>
         </div>
         <p class="muted">
-          金额单位为万元，支持输入至 0.01 元。比例以百分数输入，警戒线必须高于平仓线。
+          金额单位为万元，支持输入至 0.01
+          元。比例以百分数输入，警戒线必须高于平仓线。
         </p>
         <ElForm label-position="top" autocomplete="off" @submit.prevent>
           <div class="field-grid">
@@ -325,15 +452,65 @@ async function copy() {
       <section class="workspace panel">
         <div class="workspace-heading">
           <h2>方案测算</h2>
-          <ElButton :disabled="!account" @click="copy">复制计算结果</ElButton>
+          <ElButton :disabled="!calculationAccount" @click="copy"
+            >复制计算结果</ElButton
+          >
         </div>
         <p v-if="copyMessage" role="status">{{ copyMessage }}</p>
+        <ElForm label-position="top" @submit.prevent>
+          <div class="simulation-grid">
+            <ElFormItem label="恢复目标">
+              <select
+                v-model="recoveryMode"
+                class="recovery-select"
+                aria-label="恢复目标"
+              >
+                <option value="liquidation">平仓线</option>
+                <option value="warning">警戒线</option>
+                <option value="custom">自定义比例</option>
+              </select>
+            </ElFormItem>
+            <ElFormItem v-if="recoveryMode === 'custom'" label="自定义恢复比例">
+              <ElInput
+                v-model="recoveryForm.custom"
+                inputmode="decimal"
+                aria-label="自定义恢复比例"
+                ><template #suffix>%</template></ElInput
+              >
+            </ElFormItem>
+            <ElFormItem label="附加比例（百分点）">
+              <ElInput
+                v-model="recoveryForm.buffer"
+                inputmode="decimal"
+                aria-label="附加比例"
+                ><template #suffix>个百分点</template></ElInput
+              >
+            </ElFormItem>
+          </div>
+        </ElForm>
+        <ElAlert
+          v-if="recoverySettings.error"
+          :title="recoverySettings.error"
+          type="error"
+          :closable="false"
+        />
+        <p class="muted">
+          实际恢复目标
+          {{
+            effectiveTarget ? formatRatio(effectiveTarget) : "—"
+          }}。附加比例默认 0.03 个百分点，可设为
+          0。万元金额保留两位小数，所需操作金额向上显示。实际操作可按精确最低元金额，操作后数据及达标状态按精确值计算。
+        </p>
         <ElTabs v-model="tab"
           ><ElTabPane label="反向补仓计算" name="solutions">
             <p class="muted">
-              按平仓线计算最低理论金额，所需金额向上取整到分。三种方案分别测算。达到平仓线后若仍低于警戒线，预警仍会保留。
+              按选定的恢复目标及附加比例计算最低理论金额，向上取整到分。平仓线和警戒线独立用于风险提醒。
             </p>
-            <div v-if="account" class="solution-grid" aria-live="polite">
+            <div
+              v-if="calculationAccount"
+              class="solution-grid"
+              aria-live="polite"
+            >
               <article
                 v-for="s in solutions"
                 :key="s.name"
@@ -354,10 +531,19 @@ async function copy() {
                 </div>
                 <span class="muted">理论所需金额</span>
                 <div class="solution-amount">
-                  {{ s.amount === null ? "—" : formatWanAmount(s.amount)
+                  {{
+                    s.amount === null ? "—" : formatRequiredWanAmount(s.amount)
                   }}<small v-if="s.amount !== null">万元</small>
                 </div>
+                <p v-if="s.amount !== null" class="muted">
+                  精确最低金额 {{ formatAmount(s.amount) }} 元
+                </p>
                 <p class="reason">{{ s.reason }}</p>
+                <ElTag
+                  v-if="s.amount !== null"
+                  :type="riskTagType(snapshotRisk(s))"
+                  >{{ riskLabels[snapshotRisk(s)] }}</ElTag
+                >
                 <dl>
                   <div>
                     <dt>操作后总资产</dt>
@@ -380,6 +566,55 @@ async function copy() {
             </div>
             <div v-else class="empty">
               输入总资产与总负债，即可查看三种补仓方案。
+            </div>
+            <div
+              v-if="recoveryScenarios.length"
+              class="table-wrap scenario-comparison"
+            >
+              <h3>两档恢复方案对照</h3>
+              <table>
+                <thead>
+                  <tr>
+                    <th>方案（万元）</th>
+                    <th
+                      v-for="scenario in recoveryScenarios"
+                      :key="scenario.name"
+                    >
+                      {{ scenario.name }}<br />{{
+                        formatRatio(scenario.target)
+                      }}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="(name, index) in [
+                      '追加现金',
+                      '外部资金直接还债',
+                      '账户内资产还债',
+                    ]"
+                    :key="name"
+                  >
+                    <th>{{ name }}</th>
+                    <td
+                      v-for="scenario in recoveryScenarios"
+                      :key="scenario.name"
+                    >
+                      {{
+                        scenario.solutions[index]!.amount === null
+                          ? "不可行"
+                          : formatRequiredWanAmount(
+                              scenario.solutions[index]!.amount!,
+                            )
+                      }}<br /><span class="muted">{{
+                        feasibilityLabels[
+                          scenario.solutions[index]!.feasibility
+                        ]
+                      }}</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
             <div class="explanation">
               <strong>卖股票不等于偿还负债。</strong>
@@ -407,6 +642,16 @@ async function copy() {
                 >
               </div></ElForm
             >
+            <ElForm label-position="top" @submit.prevent
+              ><ElFormItem label="取现后最低维持担保比例"
+                ><ElInput
+                  v-model="withdrawalRatio"
+                  inputmode="decimal"
+                  aria-label="模拟取现后最低比例"
+                  ><template #suffix>%</template></ElInput
+                ></ElFormItem
+              ></ElForm
+            >
             <ElAlert
               v-if="simulation.errors.length"
               :title="simulation.errors.join('；')"
@@ -417,13 +662,17 @@ async function copy() {
               ><div class="simulation-status" aria-live="polite">
                 <ElTag
                   :type="
-                    simulation.result.reachedTarget ? 'success' : 'warning'
+                    simulation.result.reachedTarget
+                      ? riskTagType(simulation.result.riskStatus)
+                      : 'warning'
                   "
                   >{{
                     simulation.result.reachedTarget
-                      ? "达到平仓线"
-                      : "低于平仓线"
-                  }}</ElTag
+                      ? "达到恢复目标"
+                      : "未达到恢复目标"
+                  }}</ElTag><ElTag
+                  :type="riskTagType(simulation.result.riskStatus)"
+                  >{{ riskLabels[simulation.result.riskStatus] }}</ElTag
                 ><span>比例变化 {{ change }}</span>
               </div>
               <p
@@ -444,7 +693,9 @@ async function copy() {
                   <tbody>
                     <tr>
                       <th>总资产（万元）</th>
-                      <td>{{ formatWanAmount(new Decimal(account.assets)) }}</td>
+                      <td>
+                        {{ formatWanAmount(new Decimal(account.assets)) }}
+                      </td>
                       <td>{{ formatWanAmount(simulation.result.assets) }}</td>
                     </tr>
                     <tr>
@@ -461,7 +712,9 @@ async function copy() {
                           )
                         }}
                       </td>
-                      <td>{{ formatWanAmount(simulation.result.netAssets) }}</td>
+                      <td>
+                        {{ formatWanAmount(simulation.result.netAssets) }}
+                      </td>
                     </tr>
                     <tr>
                       <th>维持担保比例</th>
@@ -476,6 +729,98 @@ async function copy() {
             <p class="muted">
               假设卖出价格等于当前资产估值，交易费用仅扣除一次，未用于还债的卖股所得仍留在账户中。
             </p>
+          </ElTabPane>
+          <ElTabPane label="还债后取现" name="withdrawal">
+            <p class="muted">
+              按当前账户独立测算：先使用账户内资产还债，再提取现金。取现后最低比例默认采用参考表的
+              300%，可按实际要求调整。未计变现费用及结算时间。
+            </p>
+            <ElForm label-position="top" @submit.prevent
+              ><div class="simulation-grid">
+                <ElFormItem label="拟提取现金"
+                  ><ElInput
+                    v-model="ops.withdrawal"
+                    inputmode="decimal"
+                    aria-label="拟提取现金"
+                    ><template #suffix>万元</template></ElInput
+                  ></ElFormItem
+                >
+                <ElFormItem label="取现后最低维持担保比例"
+                  ><ElInput
+                    v-model="withdrawalRatio"
+                    inputmode="decimal"
+                    aria-label="取现后最低比例"
+                    ><template #suffix>%</template></ElInput
+                  ></ElFormItem
+                >
+              </div></ElForm
+            >
+            <ElAlert
+              v-if="withdrawalPlan.error"
+              :title="withdrawalPlan.error"
+              type="error"
+              :closable="false"
+            />
+            <article
+              v-if="withdrawalPlan.result"
+              class="solution-card withdrawal-result"
+              aria-live="polite"
+            >
+              <div class="card-heading">
+                <h3>所需账户内还债金额</h3>
+                <ElTag
+                  :type="
+                    withdrawalPlan.result.feasibility === 'INFEASIBLE'
+                      ? 'danger'
+                      : withdrawalPlan.result.feasibility === 'UNKNOWN'
+                        ? 'warning'
+                        : 'success'
+                  "
+                  >{{
+                    feasibilityLabels[withdrawalPlan.result.feasibility]
+                  }}</ElTag
+                >
+              </div>
+              <div class="solution-amount">
+                {{
+                  withdrawalPlan.result.amount === null
+                    ? "—"
+                    : formatRequiredWanAmount(withdrawalPlan.result.amount)
+                }}<small>万元</small>
+              </div>
+              <p v-if="withdrawalPlan.result.amount !== null" class="muted">
+                精确最低金额 {{ formatAmount(withdrawalPlan.result.amount) }} 元
+              </p>
+              <p class="reason">{{ withdrawalPlan.result.reason }}</p>
+              <dl v-if="withdrawalPlan.result.amount !== null">
+                <div>
+                  <dt>取现后总资产</dt>
+                  <dd>
+                    {{ formatWanAmount(withdrawalPlan.result.assets) }} 万元
+                  </dd>
+                </div>
+                <div>
+                  <dt>取现后总负债</dt>
+                  <dd>
+                    {{ formatWanAmount(withdrawalPlan.result.debt) }} 万元
+                  </dd>
+                </div>
+                <div>
+                  <dt>取现后净资产</dt>
+                  <dd>
+                    {{ formatWanAmount(withdrawalPlan.result.netAssets) }} 万元
+                  </dd>
+                </div>
+                <div>
+                  <dt>取现后比例</dt>
+                  <dd>{{ formatRatio(withdrawalPlan.result.ratio) }}</dd>
+                </div>
+              </dl>
+              <p class="muted">
+                账户内可用现金与可卖股票用于判断资金条件，需覆盖还债金额和拟取现金额。组合操作可在“正向操作模拟”中验证。
+              </p>
+            </article>
+            <div v-if="!account" class="empty">请先填写有效的账户信息。</div>
           </ElTabPane></ElTabs
         >
       </section>

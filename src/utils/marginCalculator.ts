@@ -9,9 +9,12 @@ export type RiskStatus =
 export interface Account {
   assets: Money;
   debt: Money;
-  /** 补仓测算使用的平仓线，小数形式。 */
+  /** 平仓线，小数形式。保留 target 字段以兼容已有调用。 */
   target: Money;
   warning: Money;
+  recoveryTarget?: Money;
+  recoveryBuffer?: Money;
+  withdrawalRatio?: Money;
   cash?: Money;
   stocks?: Money;
   external?: Money;
@@ -23,6 +26,7 @@ export interface Operations {
   saleAmount: Money;
   transactionFees: Money;
   stockRepayment: Money;
+  withdrawal?: Money;
 }
 export interface Snapshot {
   assets: Decimal;
@@ -43,6 +47,7 @@ export const operationLabels: Record<keyof Operations, string> = {
   saleAmount: "卖股票成交金额",
   transactionFees: "股票交易费用",
   stockRepayment: "卖股所得实际还债",
+  withdrawal: "提取现金",
 };
 export function parseDecimal(value: Money): Decimal {
   if (!(value instanceof Decimal) && !/^\d+(?:\.\d+)?$/.test(value))
@@ -62,6 +67,22 @@ export const ceilToCent = (value: Decimal): Decimal =>
   value.toDecimalPlaces(2, Decimal.ROUND_CEIL);
 export const formatAmount = (value: Decimal): string =>
   value.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+/** 万元展示保留两位小数，实际计算仍精确到分。 */
+export function formatWanAmount(value: Decimal): string {
+  return formatAmount(value.div(10000));
+}
+/** 最低操作金额向上显示，避免按万元展示值操作时不足额。 */
+export function formatRequiredWanAmount(value: Decimal): string {
+  return value
+    .div(10000)
+    .toFixed(2, Decimal.ROUND_CEIL)
+    .replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+export function getRecoveryTarget(account: Account): Decimal {
+  return parseDecimal(account.recoveryTarget ?? account.target).add(
+    parseDecimal(account.recoveryBuffer ?? "0"),
+  );
+}
 export const formatRatio = (value: Decimal | null): string =>
   value === null ? "无负债" : `${value.mul(100).toFixed(2)}%`;
 export function validateAccount(account: Account): string[] {
@@ -74,6 +95,11 @@ export function validateAccount(account: Account): string[] {
     if (target.lte(1)) errors.push("平仓线必须大于100%");
     if (warning.lte(0)) errors.push("警戒线必须大于0");
     if (warning.lte(target)) errors.push("警戒线必须高于平仓线");
+    if (parseDecimal(account.recoveryTarget ?? account.target).lte(1))
+      errors.push("恢复目标比例必须大于100%");
+    getRecoveryTarget(account);
+    if (parseDecimal(account.withdrawalRatio ?? "3").lte(1))
+      errors.push("取现后最低比例必须大于100%");
     const cash =
       account.cash === undefined ? undefined : parseAmount(account.cash);
     const stocks =
@@ -125,7 +151,7 @@ function solution(
   assertAccount(account);
   const a = parseAmount(account.assets),
     b = parseAmount(account.debt),
-    r = parseDecimal(account.target);
+    r = getRecoveryTarget(account);
   const name = {
     cash: "追加现金",
     external: "外部资金直接还债",
@@ -138,7 +164,7 @@ function solution(
       name,
       amount: new Decimal(0),
       feasibility: "NOT_REQUIRED",
-      reason: "不需要补仓",
+      reason: "已达到恢复目标，不需要补仓",
     };
   if (kind === "internal" && a.lte(b))
     return {
@@ -146,7 +172,7 @@ function solution(
       name,
       amount: null,
       feasibility: "INFEASIBLE",
-      reason: "净资产小于或等于零，账户内还债无法达到平仓线",
+      reason: "净资产小于或等于零，账户内还债无法达到恢复目标",
     };
   const raw =
     kind === "cash"
@@ -164,7 +190,7 @@ function solution(
     after.debt.isNegative() ||
     (after.ratio !== null && after.assets.lt(after.debt.mul(r)))
   )
-    throw new Error("取整后的方案未达到平仓线或超出允许范围");
+    throw new Error("取整后的方案未达到恢复目标或超出允许范围");
   let available: Decimal | undefined;
   if (kind === "internal") {
     const known = new Decimal(account.cash ?? "0").add(account.stocks ?? "0");
@@ -212,6 +238,7 @@ export function validateOperations(
         parseAmount(value),
       ]),
     ) as Record<keyof Operations, Decimal>;
+    const withdrawal = parseAmount(operations.withdrawal ?? "0");
     const repayments = op.externalRepayment
       .add(op.internalCashRepayment)
       .add(op.stockRepayment);
@@ -243,15 +270,33 @@ export function validateOperations(
       op.addCash.add(op.externalRepayment).gt(account.external)
     )
       errors.push("追加现金与外部还债合计超过外部可用资金");
-    if (
-      new Decimal(account.assets)
+    const newAssets = new Decimal(account.assets)
+      .add(op.addCash)
+      .sub(op.internalCashRepayment)
+      .sub(op.stockRepayment)
+      .sub(op.transactionFees)
+      .sub(withdrawal);
+    const newDebt = new Decimal(account.debt).sub(repayments);
+    if (newAssets.isNegative()) errors.push("操作后总资产不能为负");
+    if (withdrawal.gt(0)) {
+      // 已有现金与卖出股票互不重叠，未知现金仅用于判断理论上限。
+      const cashBefore =
+        account.cash === undefined
+          ? new Decimal(account.assets).sub(
+              Decimal.max(account.stocks ?? "0", op.saleAmount),
+            )
+          : parseAmount(account.cash);
+      const cashAfter = cashBefore
         .add(op.addCash)
-        .sub(op.internalCashRepayment)
-        .sub(op.stockRepayment)
+        .add(op.saleAmount)
         .sub(op.transactionFees)
-        .isNegative()
-    )
-      errors.push("操作后总资产不能为负");
+        .sub(op.internalCashRepayment)
+        .sub(op.stockRepayment);
+      if (withdrawal.gt(cashAfter)) errors.push("可用于取现的现金不足");
+      const minimum = parseDecimal(account.withdrawalRatio ?? "3");
+      if (newDebt.gt(0) && newAssets.lt(newDebt.mul(minimum)))
+        errors.push(`取现后维持担保比例必须达到${formatRatio(minimum)}`);
+    }
   } catch (error) {
     errors.push((error as Error).message);
   }
@@ -260,7 +305,11 @@ export function validateOperations(
 export function simulateOperations(
   account: Account,
   operations: Operations,
-): Snapshot & { reachedTarget: boolean; feasibility: Feasibility } {
+): Snapshot & {
+  reachedTarget: boolean;
+  feasibility: Feasibility;
+  riskStatus: RiskStatus;
+} {
   const errors = validateOperations(account, operations);
   if (errors.length) throw new Error(errors.join("；"));
   const op = Object.fromEntries(
@@ -270,7 +319,8 @@ export function simulateOperations(
     .add(op.addCash)
     .sub(op.internalCashRepayment)
     .sub(op.stockRepayment)
-    .sub(op.transactionFees);
+    .sub(op.transactionFees)
+    .sub(operations.withdrawal ?? "0");
   const debt = new Decimal(account.debt)
     .sub(op.externalRepayment)
     .sub(op.internalCashRepayment)
@@ -279,10 +329,81 @@ export function simulateOperations(
     (op.addCash.add(op.externalRepayment).gt(0) &&
       account.external === undefined) ||
     (op.internalCashRepayment.gt(0) && account.cash === undefined) ||
-    (op.saleAmount.gt(0) && account.stocks === undefined);
+    (op.saleAmount.gt(0) && account.stocks === undefined) ||
+    (new Decimal(operations.withdrawal ?? "0").gt(
+      op.addCash
+        .add(op.saleAmount)
+        .sub(op.transactionFees)
+        .sub(op.internalCashRepayment)
+        .sub(op.stockRepayment),
+    ) &&
+      account.cash === undefined);
   return {
     ...snapshot(assets, debt),
-    reachedTarget: debt.isZero() || assets.gte(debt.mul(account.target)),
+    reachedTarget:
+      debt.isZero() || assets.gte(debt.mul(getRecoveryTarget(account))),
+    riskStatus: calculateRiskStatus({
+      assets,
+      debt,
+      target: account.target,
+      warning: account.warning,
+    }),
     feasibility: unknown ? "UNKNOWN" : "FEASIBLE",
   };
+}
+
+export interface WithdrawalPlan extends Solution {
+  withdrawal: Decimal;
+  requiredRatio: Decimal;
+}
+
+/** 使用账户内资产还债，再提取现金。未计变现费用及结算时间。 */
+export function calculateWithdrawalRepayment(
+  account: Account,
+  requestedWithdrawal: Money,
+): WithdrawalPlan {
+  assertAccount(account);
+  const withdrawal = parseAmount(requestedWithdrawal);
+  const requiredRatio = parseDecimal(account.withdrawalRatio ?? "3");
+  const assets = parseAmount(account.assets);
+  const debt = parseAmount(account.debt);
+  const raw = Decimal.max(
+    0,
+    debt
+      .mul(requiredRatio)
+      .sub(assets)
+      .add(withdrawal)
+      .div(requiredRatio.sub(1)),
+  );
+  const amount = ceilToCent(raw);
+  const before = snapshot(assets, debt);
+  const base = { name: "还债后提取现金", withdrawal, requiredRatio };
+  if (amount.gt(debt) || amount.add(withdrawal).gt(assets)) {
+    return {
+      ...base,
+      ...before,
+      amount: null,
+      feasibility: "INFEASIBLE",
+      reason: "账户内资产不足以完成还债与取现，无法满足取现后最低比例",
+    };
+  }
+  const after = snapshot(assets.sub(amount).sub(withdrawal), debt.sub(amount));
+  if (after.debt.gt(0) && after.assets.lt(after.debt.mul(requiredRatio)))
+    throw new Error("取整后的还债金额未满足取现后最低比例");
+  const needed = amount.add(withdrawal);
+  const known = new Decimal(account.cash ?? "0").add(account.stocks ?? "0");
+  let feasibility: Feasibility = "UNKNOWN";
+  if (known.gte(needed)) feasibility = "FEASIBLE";
+  else if (account.cash !== undefined && account.stocks !== undefined)
+    feasibility = "INFEASIBLE";
+  if (needed.isZero()) feasibility = "NOT_REQUIRED";
+  const reason =
+    feasibility === "UNKNOWN"
+      ? "理论金额，可用于还债与取现的资金信息不足"
+      : feasibility === "INFEASIBLE"
+        ? "已知可变现资金不足以覆盖还债与取现"
+        : feasibility === "NOT_REQUIRED"
+          ? "无需还债或取现"
+          : "已知可变现资金充足，需先变现为现金并满足实际取现条件";
+  return { ...base, ...after, amount, feasibility, reason };
 }
