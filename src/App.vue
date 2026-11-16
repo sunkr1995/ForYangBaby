@@ -179,6 +179,10 @@ function reset() {
   for (const key of Object.keys(ops) as (keyof Operations)[]) ops[key] = "0";
   copyMessage.value = "";
 }
+function formatWanAmount(value: Decimal): string {
+  return formatAmount(value.div(10000));
+}
+
 function operationError(key: keyof Operations): string {
   try {
     parseAmount(ops[key], "10000");
@@ -191,20 +195,20 @@ async function copy() {
   if (!account.value) return;
   const lines = [
     "融资融券维持担保比例测算",
-    `总资产 ${formatAmount(new Decimal(account.value.assets))} 元`,
-    `总负债 ${formatAmount(new Decimal(account.value.debt))} 元`,
+    `总资产 ${formatWanAmount(new Decimal(account.value.assets))} 万元`,
+    `总负债 ${formatWanAmount(new Decimal(account.value.debt))} 万元`,
     `当前比例 ${formatRatio(ratio.value)}`,
     `平仓线 ${form.target}%`,
     ...solutions.value.map(
       (s) =>
-        `${s.name} ${s.amount === null ? "无可行金额" : formatAmount(s.amount) + " 元"}（${feasibilityLabels[s.feasibility]}，${s.reason}）`,
+        `${s.name} ${s.amount === null ? "无可行金额" : formatWanAmount(s.amount) + " 万元"}（${feasibilityLabels[s.feasibility]}，${s.reason}）`,
     ),
   ];
   if (Object.values(ops).some((v) => v !== "0")) {
     const s = simulation.value.result;
     if (s)
       lines.push(
-        `模拟后资产 ${formatAmount(s.assets)} 元，负债 ${formatAmount(s.debt)} 元，净资产 ${formatAmount(s.netAssets)} 元，比例 ${formatRatio(s.ratio)}，${s.reachedTarget ? "达到平仓线" : "低于平仓线"}，${feasibilityLabels[s.feasibility]}`,
+        `模拟后资产 ${formatWanAmount(s.assets)} 万元，负债 ${formatWanAmount(s.debt)} 万元，净资产 ${formatWanAmount(s.netAssets)} 万元，比例 ${formatRatio(s.ratio)}，${s.reachedTarget ? "达到平仓线" : "低于平仓线"}，${feasibilityLabels[s.feasibility]}`,
       );
     else lines.push(`操作模拟输入无效 ${simulation.value.errors.join("；")}`);
   }
@@ -224,12 +228,12 @@ async function copy() {
 <template>
   <div class="page">
     <header class="topbar">
-      <span class="brand">融券 · 账户测算</span
+      <span class="brand">账户测算</span
       ><span class="privacy">本地计算 · 数据不保存</span>
     </header>
     <section class="intro">
       <div>
-        <h1>融资融券维持担保比例计算器</h1>
+        <h1>信用账户维比担保比例测算器</h1>
         <p>快速测算补仓金额、还款方案与操作后风险比例。</p>
       </div>
       <ElButton @click="demo">加载演示数据</ElButton>
@@ -300,8 +304,8 @@ async function copy() {
             <span>当前净资产</span
             ><strong>{{
               account
-                ? formatAmount(
-                    calculateNetAssets(account.assets, account.debt).div(10000),
+                ? formatWanAmount(
+                    calculateNetAssets(account.assets, account.debt),
                   ) + " 万元"
                 : "—"
             }}</strong>
@@ -350,18 +354,18 @@ async function copy() {
                 </div>
                 <span class="muted">理论所需金额</span>
                 <div class="solution-amount">
-                  {{ s.amount === null ? "—" : formatAmount(s.amount)
-                  }}<small v-if="s.amount !== null">元</small>
+                  {{ s.amount === null ? "—" : formatWanAmount(s.amount)
+                  }}<small v-if="s.amount !== null">万元</small>
                 </div>
                 <p class="reason">{{ s.reason }}</p>
                 <dl>
                   <div>
                     <dt>操作后总资产</dt>
-                    <dd>{{ formatAmount(s.assets) }} 元</dd>
+                    <dd>{{ formatWanAmount(s.assets) }} 万元</dd>
                   </div>
                   <div>
                     <dt>操作后总负债</dt>
-                    <dd>{{ formatAmount(s.debt) }} 元</dd>
+                    <dd>{{ formatWanAmount(s.debt) }} 万元</dd>
                   </div>
                   <div>
                     <dt>操作后比例</dt>
@@ -439,25 +443,25 @@ async function copy() {
                   </thead>
                   <tbody>
                     <tr>
-                      <th>总资产（元）</th>
-                      <td>{{ formatAmount(new Decimal(account.assets)) }}</td>
-                      <td>{{ formatAmount(simulation.result.assets) }}</td>
+                      <th>总资产（万元）</th>
+                      <td>{{ formatWanAmount(new Decimal(account.assets)) }}</td>
+                      <td>{{ formatWanAmount(simulation.result.assets) }}</td>
                     </tr>
                     <tr>
-                      <th>总负债（元）</th>
-                      <td>{{ formatAmount(new Decimal(account.debt)) }}</td>
-                      <td>{{ formatAmount(simulation.result.debt) }}</td>
+                      <th>总负债（万元）</th>
+                      <td>{{ formatWanAmount(new Decimal(account.debt)) }}</td>
+                      <td>{{ formatWanAmount(simulation.result.debt) }}</td>
                     </tr>
                     <tr>
-                      <th>净资产（元）</th>
+                      <th>净资产（万元）</th>
                       <td>
                         {{
-                          formatAmount(
+                          formatWanAmount(
                             calculateNetAssets(account.assets, account.debt),
                           )
                         }}
                       </td>
-                      <td>{{ formatAmount(simulation.result.netAssets) }}</td>
+                      <td>{{ formatWanAmount(simulation.result.netAssets) }}</td>
                     </tr>
                     <tr>
                       <th>维持担保比例</th>
