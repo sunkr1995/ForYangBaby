@@ -359,7 +359,7 @@ async function copy() {
     </header>
     <section class="intro">
       <div>
-        <h1>信用账户维比担保比例测算器</h1>
+        <h1>信用账户维持担保比例测算器</h1>
         <p>快速测算补仓金额、还款方案与操作后风险比例。</p>
       </div>
       <ElButton @click="demo">加载演示数据</ElButton>
