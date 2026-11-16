@@ -1,0 +1,433 @@
+:root {
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    "Microsoft YaHei",
+    sans-serif;
+  color: #1c2b40;
+  background: #f3f5f8;
+  font-synthesis: none;
+  font-variant-numeric: tabular-nums;
+  --el-color-primary: #245edb;
+  --el-border-radius-base: 7px;
+  --el-component-size: 44px;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+button,
+input {
+  font: inherit;
+}
+.page {
+  max-width: 1280px;
+  margin: auto;
+  padding: 0 36px;
+}
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 25px 0;
+  border-bottom: 1px solid #dce2e9;
+}
+.brand {
+  font-weight: 750;
+  letter-spacing: 1px;
+}
+.privacy {
+  font-size: 13px;
+  color: #607187;
+}
+.intro {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 38px 0 28px;
+}
+h1 {
+  font-size: clamp(23px, 2.6vw, 32px);
+  letter-spacing: -0.7px;
+  margin: 0 0 12px;
+}
+p {
+  line-height: 1.8;
+}
+.intro p {
+  margin: 0;
+  color: #68758a;
+  font-size: 15px;
+}
+h2 {
+  font-size: 18px;
+  margin: 0;
+}
+h3 {
+  font-size: 16px;
+  margin: 0;
+}
+.panel {
+  background: white;
+  border: 1px solid #e0e5ed;
+  border-radius: 12px;
+  padding: 26px;
+}
+.section-heading,
+.workspace-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.muted {
+  color: #748094;
+  font-size: 13px;
+}
+.account-panel > .muted {
+  margin-top: 2px;
+  margin-bottom: 22px;
+}
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 20px;
+}
+.el-form-item__label {
+  font-size: 13px !important;
+  color: #405069 !important;
+}
+.el-input__inner {
+  font-variant-numeric: tabular-nums;
+}
+summary {
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 15px 0;
+  min-height: 44px;
+}
+summary span {
+  font-size: 12px;
+  font-weight: 400;
+  color: #7b8796;
+  margin-left: 12px;
+}
+details {
+  border-top: 1px solid #edf0f5;
+}
+.advanced-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 22px;
+  padding-top: 10px;
+}
+.risk-panel {
+  margin: 22px 0;
+  background: #eaf0fa;
+  border: 1px solid #d9e2f1;
+  border-radius: 12px;
+  padding: 27px 32px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 28px;
+}
+.eyebrow {
+  font-size: 13px;
+  color: #52647b;
+}
+.ratio {
+  font-size: 42px;
+  font-weight: 750;
+  letter-spacing: -1.5px;
+  margin: 9px 0;
+}
+.risk-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+.BELOW_TARGET .ratio,
+.BELOW_TARGET .risk-label {
+  color: #bc3945;
+}
+.BELOW_WARNING .ratio,
+.BELOW_WARNING .risk-label {
+  color: #ab660a;
+}
+.AT_OR_ABOVE_TARGET .ratio,
+.NO_DEBT .ratio {
+  color: #16805d;
+}
+.risk-metrics {
+  display: flex;
+  gap: 70px;
+}
+.risk-metrics > div {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.risk-metrics span {
+  font-size: 13px;
+  color: #64738a;
+}
+.risk-metrics strong {
+  font-size: 21px;
+}
+.broker-note {
+  flex-basis: 100%;
+  font-size: 13px;
+  margin: 0;
+  color: #586a82;
+}
+.workspace {
+  margin-bottom: 28px;
+}
+.workspace-heading {
+  margin-bottom: 18px;
+}
+.el-tabs__item {
+  height: 48px !important;
+}
+.solution-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  margin: 22px 0;
+}
+.solution-card {
+  border: 1px solid #dfe5ee;
+  border-radius: 9px;
+  padding: 21px 18px;
+}
+.card-heading {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 28px;
+}
+.solution-amount {
+  font-size: 29px;
+  font-weight: 700;
+  margin-top: 10px;
+  overflow-wrap: anywhere;
+  letter-spacing: -0.5px;
+}
+.solution-amount small {
+  font-size: 12px;
+  font-weight: 400;
+  color: #7b8797;
+  margin-left: 7px;
+}
+.reason {
+  font-size: 12px;
+  color: #6e7c90;
+  min-height: 42px;
+  margin: 12px 0 20px;
+}
+dl {
+  border-top: 1px solid #edf0f4;
+  padding-top: 12px;
+  margin: 0;
+  font-size: 12px;
+}
+dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 13px 0;
+}
+dt {
+  color: #748094;
+}
+dd {
+  margin: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.explanation {
+  background: #f6f8fb;
+  padding: 17px 20px;
+  border-radius: 7px;
+  font-size: 13px;
+  color: #526176;
+}
+.explanation p {
+  margin: 5px 0 0;
+}
+.empty {
+  text-align: center;
+  padding: 60px 16px;
+  color: #7b8797;
+}
+.simulation-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px 24px;
+  margin-top: 22px;
+}
+.simulation-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: center;
+  margin: 22px 0;
+  font-size: 14px;
+}
+.table-wrap {
+  overflow-x: auto;
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 14px;
+}
+th,
+td {
+  text-align: right;
+  padding: 16px;
+  border-bottom: 1px solid #e6eaf0;
+}
+th:first-child {
+  text-align: left;
+}
+thead {
+  background: #f6f8fb;
+  color: #68778c;
+}
+footer {
+  padding: 0 4px 32px;
+  color: #7a8595;
+}
+footer h2 {
+  font-size: 13px;
+}
+footer p {
+  font-size: 12px;
+  margin: 8px 0;
+}
+@media (max-width: 1000px) {
+  .field-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .risk-metrics {
+    gap: 32px;
+  }
+  .solution-grid {
+    gap: 10px;
+  }
+  .solution-card {
+    padding: 17px 12px;
+  }
+  .solution-amount {
+    font-size: 24px;
+  }
+}
+@media (max-width: 680px) {
+  .page {
+    padding: 0 16px;
+  }
+  .topbar {
+    padding: 19px 0;
+  }
+  .brand {
+    font-size: 14px;
+  }
+  .privacy {
+    font-size: 11px;
+  }
+  .intro {
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 26px 0;
+    gap: 16px;
+  }
+  .panel {
+    padding: 19px 16px;
+  }
+  .field-grid,
+  .advanced-grid,
+  .simulation-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 16px;
+  }
+  .field-grid > div:last-child {
+    grid-column: 1/-1;
+  }
+  .advanced-grid {
+    padding-top: 15px;
+  }
+  summary span {
+    display: block;
+    margin: 8px 0 0 15px;
+  }
+  .risk-panel {
+    padding: 23px;
+    gap: 25px;
+  }
+  .risk-metrics {
+    width: 100%;
+    gap: 15px;
+    justify-content: space-between;
+  }
+  .risk-metrics strong {
+    font-size: 16px;
+  }
+  .ratio {
+    font-size: 38px;
+  }
+  .solution-grid {
+    grid-template-columns: 1fr;
+    gap: 15px;
+  }
+  .solution-card {
+    padding: 22px;
+  }
+  .solution-amount {
+    font-size: 30px;
+  }
+  .reason {
+    min-height: 0;
+  }
+  .card-heading {
+    margin-bottom: 24px;
+  }
+  .workspace-heading h2 {
+    font-size: 17px;
+  }
+  th,
+  td {
+    padding: 13px 8px;
+    font-size: 12px;
+  }
+  .simulation-status {
+    gap: 12px;
+  }
+  h1 {
+    line-height: 1.4;
+  }
+  .el-button {
+    min-height: 40px;
+  }
+}
+@media (max-width: 380px) {
+  .field-grid,
+  .advanced-grid,
+  .simulation-grid {
+    grid-template-columns: 1fr;
+  }
+  .risk-metrics {
+    flex-wrap: wrap;
+  }
+  .privacy {
+    max-width: 100px;
+    text-align: right;
+  }
+}
